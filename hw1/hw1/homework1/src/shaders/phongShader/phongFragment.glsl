@@ -105,6 +105,9 @@ float PCSS(sampler2D shadowMap, vec4 coords){
 
 
 float useShadowMap(sampler2D shadowMap, vec4 shadowCoord){
+
+
+
   return 1.0;
 }
 
@@ -133,13 +136,16 @@ vec3 blinnPhong() {
 
 void main(void) {
 
+ vec3  shadowCoord=vPositionFromLight.xyz/vPositionFromLight.w;//vPositionFromLight为光源空间下投影的裁剪坐标，除以w结果为NDC坐标
+  shadowCoord.xyz = (shadowCoord.xyz + 1.0) / 2.0; //把[-1,1]的NDC坐标转换为[0,1]的坐标
+
   float visibility;
-  //visibility = useShadowMap(uShadowMap, vec4(shadowCoord, 1.0));
+  visibility = useShadowMap(uShadowMap, vec4(shadowCoord, 1.0));
   //visibility = PCF(uShadowMap, vec4(shadowCoord, 1.0));
   //visibility = PCSS(uShadowMap, vec4(shadowCoord, 1.0));
 
   vec3 phongColor = blinnPhong();
 
-  //gl_FragColor = vec4(phongColor * visibility, 1.0);
-  gl_FragColor = vec4(phongColor, 1.0);
+  gl_FragColor = vec4(phongColor * visibility, 1.0);
+ // gl_FragColor = vec4(phongColor, 1.0);
 }
