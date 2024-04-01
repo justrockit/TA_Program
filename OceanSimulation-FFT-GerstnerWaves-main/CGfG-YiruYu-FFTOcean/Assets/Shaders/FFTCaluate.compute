@@ -1,0 +1,337 @@
+﻿#pragma kernel GetGaussianRandom
+#pragma kernel CreateHeightSpectrum
+#pragma kernel CreateDisplaceSpectrum
+#pragma kernel FFTHorizontal
+#pragma kernel FFTHorizontalEnd
+#pragma kernel FFTVertical
+#pragma kernel FFTVerticalEnd
+#pragma kernel DisplaceTextureGeneration
+#pragma kernel CreateNormalAndBubble
+
+
+#define PI 3.14159274f
+#define G 9.81f
+
+uint rngState;   //random number
+float A;         //Phillips parameter
+float4 WindAndSeed;     
+int N;           //texture sizes
+int Ns;          //FFT lenght of every level   2^(m-1)levels   
+float HeightScale;
+float LambdaX;   //Horizontal displaceX
+float LambdaZ;   //Horizontal displaceX
+float OceanLength;
+float BubblesThreshold;
+float BubbleScale;
+float Time;     //for HeightSpectrum
+float GerstnerR;        //Gerstner r
+float GerstnerA;        //Gerstner A
+float GerstnerB;        //Gerstner b
+
+RWTexture2D<float4> GaussianRandomRT;
+RWTexture2D<float4> HeightSpectrumRT;
+RWTexture2D<float4> DisplaceXSpectrumRT;
+RWTexture2D<float4> DisplaceZSpectrumRT;
+RWTexture2D<float4> InputRT;
+RWTexture2D<float4> OutputRT;
+RWTexture2D<float4> DisplaceRT;
+RWTexture2D<float4> NormalRT;
+RWTexture2D<float4> BubblesRT;
+
+uint randomSeedHash(uint seed);
+float rand();
+float dispersion(float2 k);
+float Phillips(float2 k);
+float DonelanBannerDirectionExp(float2 k);
+float2 complexMultiply(float2 c1, float2 c2);
+float getGerstnerHorizontalDisplace(float x);
+float getGerstnerVerticalDisplace(float x);
+
+
+
+[numthreads(8, 8, 1)]
+void GetGaussianRandom(uint3 id : SV_DispatchThreadID)
+{
+    rngState = randomSeedHash(id.y * N + id.x);
+    float x1 = rand();
+    float x2 = rand();
+    x1 = max(1e-6f, x1);
+    x2 = max(1e-6f, x2);
+
+    float g1 = sqrt(-2.0f * log(x1)) * cos(2.0f * PI * x2);
+    float g2 = sqrt(-2.0f * log(x1)) * sin(2.0f * PI * x2);
+    GaussianRandomRT[id.xy] = float4(g1, g2, 0, 0);
+}
+
+/*
+CreateHeightSpectrum函数用于生成高度谱。它首先计算出k值，
+然后使用Phillips函数和DonelanBannerDirectionExp函数计算出高度谱h0。
+接下来，它计算出h0的共轭，并将其y值取反。
+然后，它计算出角频率omegat，并使用cos和sin函数计算出cosN和sinN。
+最后，它将h0和h0的共轭与cosN和sinN相乘，并将结果存储在HeightSpectrumRT中。
+*/
+
+[numthreads(8, 8, 1)]
+void CreateHeightSpectrum(uint3 id : SV_DispatchThreadID) 
+{
+    float2 k = float2(2.0f * PI * id.x / N - PI, 2.0f * PI * id.y / N - PI);
+    float2 gaussian = GaussianRandomRT[id.xy].xy;//从GaussianRandomRT中获取高斯随机数。
+    float2 h0 = gaussian * sqrt(abs(Phillips(k) * DonelanBannerDirectionExp(k)) / 2.0f);//使用Phillips函数和DonelanBannerDirectionExp函数计算高度谱h0。
+    float2 h0Conj = gaussian * sqrt(abs(Phillips(-k) * DonelanBannerDirectionExp(-k)) / 2.0f);//计算h0的共轭，并将其y值取反。
+    h0Conj.y *= -1.0f;//将h0的共轭的y值取反。
+    float omegat = dispersion(k) * Time;//计算角频率omegat
+    float cosN = cos(omegat);
+    float sinN = sin(omegat);
+    float2 h = complexMultiply(h0, float2(cosN, sinN)) + complexMultiply(h0Conj, float2(cosN, -sinN));
+    HeightSpectrumRT[id.xy] = float4(h, 0, 0);
+}
+
+/*
+CreateDisplaceSpectrum函数用于生成位移谱。它首先计算出k值，并使用HeightSpectrumRT中的h0计算出Dx和Dz。
+然后，它将Dx和Dz存储在DisplaceXSpectrumRT和DisplaceZSpectrumRT中。
+*/
+[numthreads(8, 8, 1)]
+void CreateDisplaceSpectrum(uint3 id : SV_DispatchThreadID)
+{
+    float2 k = float2(2 * PI * id.x / N - PI, 2 * PI * id.y / N - PI);
+    k /= max(0.001f, length(k));
+    float2 h0 = HeightSpectrumRT[id.xy].xy;
+
+    float2 Dx = complexMultiply(h0, float2(0, -k.x));
+    float2 Dz = complexMultiply(h0, float2(0, -k.y));
+
+   // Dx = getGerstnerDisplace(Dx);
+    //Dz = getGerstnerDisplace(Dz);
+
+    DisplaceXSpectrumRT[id.xy] = float4(Dx, 0, 0);
+    DisplaceZSpectrumRT[id.xy] = float4(Dz, 0, 0);
+
+}
+
+//FFTHorizontal函数用于进行FFT变换。它首先计算出角度angle和向量w，然后使用InputRT中的x0和x1计算出output。最后，它将output存储在OutputRT中。
+
+[numthreads(8, 8, 1)]
+void FFTHorizontal(uint3 id : SV_DispatchThreadID)
+{
+    int2 index = id.xy;
+    index.x = floor(id.x / (2 * Ns)) * Ns + id.x % Ns;
+    float angle = PI * id.x / Ns;
+    float2 w = float2(cos(angle), sin(angle));
+    float2 x0 = InputRT[index].xy;
+    float2 x1 = InputRT[int2(index.x + N * 0.5f, index.y)].xy;
+   
+    float2 output = x0 + complexMultiply(w, x1);
+    
+    OutputRT[id.xy] = float4(output, 0, 0);
+}
+/*FFTHorizontalEnd函数用于进行FFT变换。它首先计算出角度angle和向量w，然后使用InputRT中的x0和x1计算出output。接下来，它根据id.x的奇偶性对output进行调整，并将结果存储在OutputRT中。
+
+FFTVertical函数也是类似的，只是它使用id.y而不是id.x。
+
+FFTVerticalEnd函数也是类似的，只是它在计算output之前将w乘以-1，并使用id.y的奇偶性对output进行调整。*/
+[numthreads(8, 8, 1)]
+void FFTHorizontalEnd(uint3 id : SV_DispatchThreadID)
+{
+    int2 index = id.xy;
+    index.x = floor(id.x / (2 * Ns)) * Ns + id.x % Ns;
+    float angle = PI * id.x / Ns;
+    float2 w = float2(cos(angle), sin(angle));
+    float2 x0 = InputRT[index].xy;
+    float2 x1 = InputRT[int2(index.x + N * 0.5f, index.y)].xy;
+    w *= -1;
+    float2 output = x0 + complexMultiply(w, x1);
+
+    float x = id.x - N * 0.5f;
+    float n = x % 2;
+    if (n == 0) {
+        output *= 1;
+    }
+    else {
+        output *= -1;
+    }
+
+    OutputRT[id.xy] = float4(output, 0, 0);
+}
+
+[numthreads(8, 8, 1)]
+void FFTVertical(uint3 id : SV_DispatchThreadID)
+{
+    int2 index = id.xy;
+    index.y = floor(id.y / (2 * Ns)) * Ns + id.y % Ns;
+    float angle = PI * id.y / Ns;
+    float2 w = float2(cos(angle), sin(angle));
+    float2 x0 = InputRT[index].xy;
+    float2 x1 = InputRT[int2(index.x, index.y + N * 0.5f)].xy;
+    
+    float2 output = x0 + complexMultiply(w, x1);
+
+    OutputRT[id.xy] = float4(output, 0, 0);
+}
+
+[numthreads(8, 8, 1)]
+void FFTVerticalEnd(uint3 id : SV_DispatchThreadID)
+{
+    int2 index = id.xy;
+    index.y = floor(id.y / (2 * Ns)) * Ns + id.y % Ns;
+    float angle = PI * id.y / Ns;
+    float2 w = float2(cos(angle), sin(angle));
+    float2 x0 = InputRT[index].xy;
+    float2 x1 = InputRT[int2(index.x, index.y + N * 0.5)].xy;
+    w *= -1;
+    float2 output = x0 + complexMultiply(w, x1);
+    float x = id.y - N * 0.5f;
+    float n = x % 2;
+    if (n == 0) {
+        output *= 1;
+    }
+    else {
+        output *= -1;
+    }
+    OutputRT[id.xy] = float4(output, 0, 0);
+}
+
+//DisplaceTextureGeneration函数用于生成位移纹理和法线贴图。它首先计算出y、x和z，然后将它们存储在HeightSpectrumRT、DisplaceXSpectrumRT和DisplaceZSpectrumRT中。接下来，它将x、y和z存储在DisplaceRT中。
+[numthreads(8, 8, 1)]
+void DisplaceTextureGeneration(uint3 id : SV_DispatchThreadID)
+{
+    float N2 = N * N;
+    float y = length(HeightSpectrumRT[id.xy].xy) / N2 * HeightScale;
+    float x = length(DisplaceXSpectrumRT[id.xy].xy) / N2 * LambdaX;
+    float z = length(DisplaceZSpectrumRT[id.xy].xy) / N2 * LambdaZ;
+    /*
+    x = getGerstnerHorizontalDisplace(x);
+    z = getGerstnerHorizontalDisplace(z);
+    y += getGerstnerVerticalDisplace(x);
+    y += getGerstnerVerticalDisplace(z);
+    */
+
+    HeightSpectrumRT[id.xy] = float4(y, y, y, 0);
+    DisplaceXSpectrumRT[id.xy] = float4(x, x, x, 0);
+    DisplaceZSpectrumRT[id.xy] = float4(z, z, z, 0);
+    DisplaceRT[id.xy] = float4(x, y, z, 0);
+}
+
+//getGerstnerHorizontalDisplace函数用于计算水平位移。它使用GerstnerB和GerstnerR对x进行调整，并返回结果。
+float getGerstnerHorizontalDisplace(float x)
+{
+    x = x - GerstnerB * sin(x);
+    float mod2piX = x - 2.0f * PI * trunc(x / (2.0f * PI));
+    float skewX = x + GerstnerR * pow(abs((PI * PI - (mod2piX - PI) * (mod2piX - PI))), 0.8f);
+    return skewX;
+}
+//getGerstnerVerticalDisplace函数用于计算垂直位移。它使用GerstnerA和x对y进行调整，
+float getGerstnerVerticalDisplace(float x)
+{
+    float y = (GerstnerA * cos(x) + GerstnerA) / 2;
+    return y;
+}
+
+//CreateNormalAndBubble函数用于生成法线贴图和气泡效果
+[numthreads(8, 8, 1)]
+void CreateNormalAndBubble(uint3 id : SV_DispatchThreadID)
+{
+    //normal
+    float uintLength = OceanLength / (N - 1.0f);
+    uint2 uvX1 = uint2((id.x - 1.0f + N) % N, id.y);
+    uint2 uvX2 = uint2((id.x + 1.0f + N) % N, id.y);
+    uint2 uvZ1 = uint2(id.x, (id.y - 1.0f + N) % N);
+    uint2 uvZ2 = uint2(id.x, (id.y + 1.0f + N) % N);
+    float3 DX1 = DisplaceRT[uvX1].xyz;
+    float3 DX2 = DisplaceRT[uvX2].xyz;
+    float3 DZ1 = DisplaceRT[uvZ1].xyz;
+    float3 DZ2 = DisplaceRT[uvZ2].xyz;
+    //vertex position
+    float3 x1 = float3(DX1.x - uintLength, DX1.yz);
+    float3 x2 = float3(DX2.x + uintLength, DX2.yz);
+    float3 z1 = float3(DZ1.xy, DZ1.z - uintLength);
+    float3 z2 = float3(DZ2.xy, DZ2.z + uintLength);
+
+    float3 tangentX = x2 - x1;
+    float3 tangentZ = z2 - z1;
+
+    float3 normal = normalize(cross(tangentZ, tangentX));
+
+    //Bubble
+    float3 ddx = DX2 - DX1;
+    float3 ddz = DZ2 - DZ1;
+    float J = (1.0f + ddx.x) * (1.0f + ddz.z) - ddx.z * ddz.x;
+    J = saturate(max(0, BubblesThreshold - saturate(J)) * BubbleScale);
+
+    NormalRT[id.xy] = float4(normal, 0);
+    BubblesRT[id.xy] = float4(J, J, J, 0);
+}
+
+//DonelanBannerDirectionExp函数、Phillips函数和dispersion函数用于计算海洋高度频谱
+//using for Height Frequency Spectrum  
+//Donelan-Banner direction expansion
+float DonelanBannerDirectionExp(float2 k) 
+{
+    float betaS;
+    float omegap = 0.855f * G / length(WindAndSeed.xy);
+    float ratio = dispersion(k) / omegap;
+
+    if(ratio < 0.95f) 
+    {
+        betaS = 2.61f * pow(ratio, 1.3f);
+    }
+    else if(ratio >= 0.95f && ratio < 1.6f) 
+    {
+        betaS = 2.28f * pow(ratio, -1.3f);
+    }
+    else if(ratio >= 1.6f) 
+    {
+        float epsilon = -0.4f + 0.8393f * exp(-0.567f * log(ratio * ratio));
+        betaS = pow(10, epsilon);
+    }
+
+    float theta = atan2(k.y, k.x) - atan2(WindAndSeed.y, WindAndSeed.x);
+    float temp = max(2.0f * tanh(betaS * PI) * pow(cosh(betaS * theta), 2), 1e-7f);
+    return betaS / temp;
+}
+
+//phillips Ph(k) - > S(w)
+float Phillips(float2 k) 
+{
+    float Lk = length(k);
+    Lk = max(0.001f, Lk);
+    float Lk2 = Lk * Lk;
+    float Lk4 = pow(Lk2, 2);
+    float Vwind = length(WindAndSeed.xy);
+    float L = Vwind * Vwind / G;
+    float damping = 0.001f;
+    float L2 = L * L * damping * damping;
+    return A * exp(-1.0f / (Lk2 * L * L)) / Lk4 * exp(-Lk2 * L2);
+}
+
+float dispersion(float2 k) 
+{
+    return sqrt(G * length(k));
+}
+
+
+//using for Gaussian Random Number
+uint randomSeedHash(uint seed) 
+{
+    seed = (seed ^ 61) ^ (seed >> 16);
+    seed *= 9;
+    seed = seed ^ (seed >> 4);
+    seed *= 0x27d4eb2d;
+    seed = seed ^ (seed >> 15);
+    return seed;
+}
+
+//uniform distributed random number
+//Xorshitf   random numbger generator [0,1)
+float rand() 
+{
+    rngState ^= (rngState << 13);
+    rngState ^= (rngState >> 17);
+    rngState ^= (rngState << 5);
+    return rngState / 4294967296.0f;   //2^32
+}
+//complexMultiply函数用于计算复数乘法
+//tools
+float2 complexMultiply(float2 c1, float2 c2)
+{
+    return float2(c1.x * c2.x - c1.y * c2.y, c1.x * c2.y + c1.y * c2.x);
+}

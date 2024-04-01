@@ -1,0 +1,150 @@
+﻿#pragma kernel CreateGerstnerWaveBeforeFFT
+#pragma kernel CreateGerstnerWaveAfterFFT
+
+#define PI 3.14159274f
+#define childCount 2
+#define MinAffectDis 500.0f
+
+float GerstnerR;        //Gerstner r
+float GerstnerA;        //Gerstner A
+float GerstnerB;        //Gerstner b
+
+float4 childs[childCount];
+//float touchHeight;
+
+
+RWTexture2D<float4> HeightSpectrumRT;
+RWTexture2D<float4> DisplaceXSpectrumRT;
+RWTexture2D<float4> DisplaceZSpectrumRT;
+RWTexture2D<float4> DisplaceRT;
+
+float getGerstnerHorizontalDisplace(float x);
+float getGerstnerVerticalDisplace(float x);
+float3 getDisplaceByObject(float3 displace);
+
+[numthreads(8,8,1)]
+void CreateGerstnerWaveBeforeFFT (uint3 id : SV_DispatchThreadID)
+{
+    float2 Dx = DisplaceXSpectrumRT[id.xy].xy;
+    float2 Dz = DisplaceZSpectrumRT[id.xy].xy;
+    Dx.x = getGerstnerHorizontalDisplace(Dx.x);
+    Dx.y = getGerstnerHorizontalDisplace(Dx.y);
+    Dz.x = getGerstnerHorizontalDisplace(Dz.x);
+    Dz.y = getGerstnerHorizontalDisplace(Dz.y);
+
+    /*
+    float2 Hy = HeightSpectrumRT[id.xy].xy;
+    Hy.x += getGerstnerVerticalDisplace(Dx.x);
+    Hy.x += getGerstnerVerticalDisplace(Dx.y);
+    Hy.y += getGerstnerVerticalDisplace(Dz.x);
+    Hy.y += getGerstnerVerticalDisplace(Dz.y);
+    */
+
+    DisplaceXSpectrumRT[id.xy] = float4(Dx, 0, 0);
+    DisplaceZSpectrumRT[id.xy] = float4(Dz, 0, 0);
+   // HeightSpectrumRT[id.xy] = float4(Hy, 0, 0);
+
+}
+
+[numthreads(8, 8, 1)]
+void CreateGerstnerWaveAfterFFT(uint3 id : SV_DispatchThreadID)
+{
+    float x = DisplaceRT[id.xy].x;
+    float y = DisplaceRT[id.xy].y;
+    float z = DisplaceRT[id.xy].z;
+
+   
+   // y += getGerstnerVerticalDisplace(x);
+    float tempYX = getGerstnerVerticalDisplace(x);
+    x += getGerstnerHorizontalDisplace(tempYX);
+    
+   // y += getGerstnerVerticalDisplace(z);
+    float tempYZ = getGerstnerVerticalDisplace(z);
+    z += getGerstnerHorizontalDisplace(tempYZ);
+    
+    //y += getGerstnerVerticalDisplace(x);
+    //y += getGerstnerVerticalDisplace(z);
+    float3 displace = float3(x, y, z);
+    displace = getDisplaceByObject(displace);
+    
+    displace.y += tempYZ;
+ 
+    //displace.y += y;
+    DisplaceRT[id.xy] = float4(displace, 0);
+    
+}
+
+float3 getDisplaceByObject(float3 displace)
+{
+    float dis;
+    float3 disV;
+    for (int i = 0; i < childCount; i++) {
+        float3 tempDV = childs[i].xyz - displace;
+        float tempD = length(tempDV);
+        if (tempD != 0 && (dis > 0 && tempD < dis || dis == 0)) {
+            dis = tempD;
+            disV = tempDV;
+        }
+    }
+
+    if (dis <= MinAffectDis && dis > 0) 
+    {
+        disV = normalize(disV);
+        // float len = length(displace);
+        float tempY = displace.y;
+        displace = dot(displace, disV) * 1.5f;  //-displace /dis * 2 - 
+        displace.y = tempY + dis/2;
+    }
+    
+    return displace;
+}
+
+float getGerstnerHorizontalDisplace(float x)
+{
+    x = x - GerstnerB * sin(x);
+    //float mod2piX = x - 2.0f * PI * trunc(x / (2.0f * PI));
+    float mod2piX = x - 2.0f * PI * trunc(x / (2.0f * PI));
+    //float mod2piX = x;
+    //float r = GerstnerR + x/ GerstnerR;
+    float skewX = x + GerstnerR * pow(abs(((PI) * (PI) - (mod2piX - PI) * (mod2piX - PI))), 0.8f);
+   // float skewX = x - GerstnerR * pow(abs(((mod2piX - PI) * (mod2piX - PI)- (PI) * (PI))), 0.8f);
+    //float skewX = x + GerstnerR * 2 * PI * mod2piX * mod2piX;
+    //skewX *= -1;
+  
+    return skewX;
+}
+
+float getGerstnerVerticalDisplace(float x)
+{
+   // rngState = randomSeedHash(x);
+   // float n = rand();
+   // float a = GerstnerA * n;
+    float y = (GerstnerA * cos(x / 4.0f) + GerstnerA) / 2;
+    return y;
+}
+
+
+/*
+
+//using for Gaussian Random Number
+uint randomSeedHash(uint seed)
+{
+    seed = (seed ^ 61) ^ (seed >> 16);
+    seed *= 9;
+    seed = seed ^ (seed >> 4);
+    seed *= 0x27d4eb2d;
+    seed = seed ^ (seed >> 15);
+    return seed;
+}
+
+//uniform distributed random number
+//Xorshitf   random numbger generator [0,1)
+float rand()
+{
+    rngState ^= (rngState << 13);
+    rngState ^= (rngState >> 17);
+    rngState ^= (rngState << 5);
+    return rngState / 4294967296.0f;   //2^32
+}
+*/
+
