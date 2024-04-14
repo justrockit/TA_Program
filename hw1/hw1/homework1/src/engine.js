@@ -42,24 +42,34 @@ function GAMES202Main() {
 	// Add renderer
 	const renderer = new WebGLRenderer(gl, camera);
 
+
 	// Add lights
 	// light - is open shadow map == true
-	let lightPos = [0, 80, 80];
+	let lightPos1 = [0, 80, 80];
 	let focalPoint = [0, 0, 0];
 	let lightUp = [0, 1, 0]
-	const directionLight = new DirectionalLight(5000, [1, 1, 1], lightPos, focalPoint, lightUp, true, renderer.gl);
+	//Edit Start 改一下第一个光源的亮度
+	const directionLight = new DirectionalLight(2500, [1, 1, 1], lightPos1, focalPoint, lightUp, true, renderer.gl);
+	//Edit End
 	renderer.addLight(directionLight);
 
+	//Edit Start 添加第二个光源
+	// let lightPos2 = [90, 90, 0];
+	// const directionLight2 = new DirectionalLight(2500, [1, 1, 1], lightPos2, focalPoint, lightUp, true, renderer.gl);
+	// renderer.addLight(directionLight2);
+	//Edit End
+
 	// Add shapes
-	
-	let floorTransform = setTransform(0, 0, -30, 4, 4, 4);
-	let obj1Transform = setTransform(0, 0, 0, 20, 20, 20);
-	let obj2Transform = setTransform(40, 0, -40, 10, 10, 10);
+	//Edit Start 添加旋转参数
+	let floorTransform = setTransform(0, 0, -30, 0, 0, 0, 4, 4, 4);
+	let obj1Transform = setTransform(0, 0, 0, 0, 0, 0, 20, 20, 20);
+	let obj2Transform = setTransform(40, 0, -40, 0, 0, 0, 10, 10, 10);
+	//Edit End
 
 	loadOBJ(renderer, 'assets/mary/', 'Marry', 'PhongMaterial', obj1Transform);
 	loadOBJ(renderer, 'assets/mary/', 'Marry', 'PhongMaterial', obj2Transform);
 	loadOBJ(renderer, 'assets/floor/', 'floor', 'PhongMaterial', floorTransform);
-	
+
 
 	// let floorTransform = setTransform(0, 0, 0, 100, 100, 100);
 	// let cubeTransform = setTransform(0, 50, 0, 10, 50, 10);
@@ -78,22 +88,41 @@ function GAMES202Main() {
 	}
 	createGUI();
 
+	//Edit Start deltaTime实现
+	let prevTime = 0;
+
 	function mainLoop(now) {
 		cameraControls.update();
-
-		renderer.render();
+		let deltaime = (now - prevTime) / 1000;
+		renderer.render(now, deltaime);
 		requestAnimationFrame(mainLoop);
+		prevTime = now;
 	}
+	//Edit End
 	requestAnimationFrame(mainLoop);
 }
 
-function setTransform(t_x, t_y, t_z, s_x, s_y, s_z) {
+//Edit Start 添加rotate参数
+function setTransform(t_x, t_y, t_z, r_x, r_y, r_z, s_x, s_y, s_z) {
+	//Edit End
 	return {
 		modelTransX: t_x,
 		modelTransY: t_y,
 		modelTransZ: t_z,
+		//Edit Start
+		modelRotateX: r_x,
+		modelRotateY: r_y,
+		modelRotateZ: r_z,
+		//Edit End
 		modelScaleX: s_x,
 		modelScaleY: s_y,
 		modelScaleZ: s_z,
 	};
 }
+
+//Edit Start
+//角度转弧度
+function degrees2Radians(degrees) {
+	return 3.1415927 / 180 * degrees;
+}
+//Edit End

@@ -20,6 +20,9 @@ varying highp vec3 vNormal;
 #define PCF_NUM_SAMPLES NUM_SAMPLES
 #define NUM_RINGS 10
 
+#define SHADOW_MAP_SZIE 2048
+#define FRUSTUM_SIZE 40
+
 #define EPS 1e-3
 #define PI 3.141592653589793
 #define PI2 6.283185307179586
@@ -87,6 +90,25 @@ float findBlocker( sampler2D shadowMap,  vec2 uv, float zReceiver ) {
 	return 1.0;
 }
 
+/*
+Radius 硬阴影是0 pcf 要算
+*/
+// float  getShadowBias (float OffsetValue,float Radius) 
+// {
+// vec3 lightDir= normalize(uLightPos-vFragPos);
+// vec3 value= 1-dot(lightDir,normalize(vNormal));
+
+// return  (1-ceil(Radius))*(FRUSTUM_SIZE/(2*SHADOW_MAP_SZIE))*value *OffsetValue;
+
+// }
+
+// float getShadowBias(float c, float filterRadiusUV){
+//   vec3 normal = normalize(vNormal);
+//   vec3 lightDir = normalize(uLightPos - vFragPos);
+//   float fragSize = (1. + ceil(filterRadiusUV)) * (FRUSTUM_SIZE / SHADOW_MAP_SZIE / 2.);
+//   return max(fragSize, fragSize * (1.0 - dot(normal, lightDir))) * c;
+// }
+
 float PCF(sampler2D shadowMap, vec4 coords) {
   return 1.0;
 }
@@ -104,11 +126,21 @@ float PCSS(sampler2D shadowMap, vec4 coords){
 }
 
 
-float useShadowMap(sampler2D shadowMap, vec4 shadowCoord){
 
 
+float useShadowMap(sampler2D shadowMap, vec4 shadowCoord,float bias)
+{
+float lightdepth=unpack(texture2D(shadowMap,shadowCoord.xy));
+float depth=shadowCoord.z;
 
-  return 1.0;
+if(lightdepth+EPS>depth-bias)
+{
+return 1.0;
+}
+else{
+return 0.0;
+
+}
 }
 
 vec3 blinnPhong() {
@@ -140,12 +172,12 @@ void main(void) {
   shadowCoord.xyz = (shadowCoord.xyz + 1.0) / 2.0; //把[-1,1]的NDC坐标转换为[0,1]的坐标
 
   float visibility;
-  visibility = useShadowMap(uShadowMap, vec4(shadowCoord, 1.0));
+  //visibility = useShadowMap(uShadowMap, vec4(shadowCoord, 1.0),getShadowBias(0.4,0.0));
   //visibility = PCF(uShadowMap, vec4(shadowCoord, 1.0));
   //visibility = PCSS(uShadowMap, vec4(shadowCoord, 1.0));
 
   vec3 phongColor = blinnPhong();
 
-  gl_FragColor = vec4(phongColor * visibility, 1.0);
+  gl_FragColor = vec4(phongColor , 1.0);
  // gl_FragColor = vec4(phongColor, 1.0);
 }
