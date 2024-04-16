@@ -20,8 +20,8 @@ varying highp vec3 vNormal;
 #define PCF_NUM_SAMPLES NUM_SAMPLES
 #define NUM_RINGS 10
 
-#define SHADOW_MAP_SZIE 2048
-#define FRUSTUM_SIZE 40
+#define SHADOW_MAP_SZIE 2048.0
+#define FRUSTUM_SIZE 400.0
 
 #define EPS 1e-3
 #define PI 3.141592653589793
@@ -93,24 +93,49 @@ float findBlocker( sampler2D shadowMap,  vec2 uv, float zReceiver ) {
 /*
 Radius 硬阴影是0 pcf 要算
 */
-// float  getShadowBias (float OffsetValue,float Radius) 
-// {
-// vec3 lightDir= normalize(uLightPos-vFragPos);
-// vec3 value= 1-dot(lightDir,normalize(vNormal));
+float  getShadowBias (float OffsetValue,float Radius) 
+{
+vec3 lightDir= normalize(uLightPos-vFragPos);
+float value=1.0- dot(lightDir,normalize(vNormal));
+float fragSize = (1.0-ceil(Radius))*( float(FRUSTUM_SIZE) / float( SHADOW_MAP_SZIE ) / 2.0);
 
-// return  (1-ceil(Radius))*(FRUSTUM_SIZE/(2*SHADOW_MAP_SZIE))*value *OffsetValue;
-
-// }
+return max(fragSize, fragSize * value)*OffsetValue;
+}
 
 // float getShadowBias(float c, float filterRadiusUV){
 //   vec3 normal = normalize(vNormal);
 //   vec3 lightDir = normalize(uLightPos - vFragPos);
-//   float fragSize = (1. + ceil(filterRadiusUV)) * (FRUSTUM_SIZE / SHADOW_MAP_SZIE / 2.);
+//   float fragSize = (1.0 + ceil(filterRadiusUV)) * (float(FRUSTUM_SIZE) / float(SHADOW_MAP_SIZE) / 2.0);
 //   return max(fragSize, fragSize * (1.0 - dot(normal, lightDir))) * c;
 // }
 
+
+float BlockDis[9];
 float PCF(sampler2D shadowMap, vec4 coords) {
-  return 1.0;
+float depth=coords.z;
+float offset=100.0;
+//先试试简单卷积加权平均 ,思路是对周围的点采样深度，判断是阴影就+1
+ BlockDis[0]=unpack(texture2D(shadowMap,vec2(coords.x-1.0*offset,coords.y+1.0*offset)));
+ BlockDis[1]=unpack(texture2D(shadowMap,vec2(coords.x,coords.y+1.0*offset)));
+  BlockDis[2]=unpack(texture2D(shadowMap,vec2(coords.x+1.0*offset,coords.y+1.0*offset)));
+   BlockDis[3]=unpack(texture2D(shadowMap,vec2(coords.x-1.0*offset,coords.y)));
+    BlockDis[4]=unpack(texture2D(shadowMap,vec2(coords.x,coords.y)));
+     BlockDis[5]=unpack(texture2D(shadowMap,vec2(coords.x+1.0*offset,coords.y)));
+      BlockDis[6]=unpack(texture2D(shadowMap,vec2(coords.x-1.0*offset,coords.y-1.0*offset)));
+       BlockDis[7]=unpack(texture2D(shadowMap,vec2(coords.x,coords.y-1.0*offset)));
+        BlockDis[8]=unpack(texture2D(shadowMap,vec2(coords.x+1.0*offset,coords.y-1.0*offset)));
+
+float value=0.0;
+  for( int i = 0; i < 9; i ++ ) {
+    if(BlockDis[i]+EPS>depth)
+    {
+  value++;
+    }
+   
+  }
+
+
+  return value/9.0;
 }
 
 float PCSS(sampler2D shadowMap, vec4 coords){
@@ -173,11 +198,11 @@ void main(void) {
 
   float visibility;
   //visibility = useShadowMap(uShadowMap, vec4(shadowCoord, 1.0),getShadowBias(0.4,0.0));
-  //visibility = PCF(uShadowMap, vec4(shadowCoord, 1.0));
+  visibility = PCF(uShadowMap, vec4(shadowCoord, 1.0));
   //visibility = PCSS(uShadowMap, vec4(shadowCoord, 1.0));
 
   vec3 phongColor = blinnPhong();
 
-  gl_FragColor = vec4(phongColor , 1.0);
+  gl_FragColor = vec4( visibility,visibility,visibility , 1.0);
  // gl_FragColor = vec4(phongColor, 1.0);
 }
