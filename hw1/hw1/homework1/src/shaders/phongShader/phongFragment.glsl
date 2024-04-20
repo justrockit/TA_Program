@@ -15,12 +15,14 @@ varying highp vec3 vFragPos;
 varying highp vec3 vNormal;
 
 // Shadow map related variables
-#define NUM_SAMPLES 20
+#define NUM_SAMPLES 50
 #define BLOCKER_SEARCH_NUM_SAMPLES NUM_SAMPLES
 #define PCF_NUM_SAMPLES NUM_SAMPLES
 #define NUM_RINGS 10
 
-#define SHADOW_MAP_SZIE 2048.0
+
+#define FILTER_RADIUS 10.0
+#define SHADOW_MAP_SIZE 2048.0
 #define FRUSTUM_SIZE 400.0
 
 #define EPS 1e-3
@@ -95,11 +97,11 @@ Radius 硬阴影是0 pcf 要算
 */
 float  getShadowBias (float OffsetValue,float Radius) 
 {
-vec3 lightDir= normalize(uLightPos-vFragPos);
-float value=1.0- dot(lightDir,normalize(vNormal));
-float fragSize = (1.0-ceil(Radius))*( float(FRUSTUM_SIZE) / float( SHADOW_MAP_SZIE ) / 2.0);
+  vec3 lightDir= normalize(uLightPos-vFragPos);
+  float value=1.0- dot(lightDir,normalize(vNormal));
+  float fragSize = (1.0-ceil(Radius))*( float(FRUSTUM_SIZE) / float( SHADOW_MAP_SIZE ) / 2.0);
 
-return max(fragSize, fragSize * value)*OffsetValue;
+  return max(fragSize, fragSize * value)*OffsetValue;
 }
 
 // float getShadowBias(float c, float filterRadiusUV){
@@ -110,33 +112,69 @@ return max(fragSize, fragSize * value)*OffsetValue;
 // }
 
 
-float BlockDis[9];
-float PCF(sampler2D shadowMap, vec4 coords) {
-float depth=coords.z;
-float offset=100.0;
-//先试试简单卷积加权平均 ,思路是对周围的点采样深度，判断是阴影就+1
- BlockDis[0]=unpack(texture2D(shadowMap,vec2(coords.x-1.0*offset,coords.y+1.0*offset)));
- BlockDis[1]=unpack(texture2D(shadowMap,vec2(coords.x,coords.y+1.0*offset)));
-  BlockDis[2]=unpack(texture2D(shadowMap,vec2(coords.x+1.0*offset,coords.y+1.0*offset)));
-   BlockDis[3]=unpack(texture2D(shadowMap,vec2(coords.x-1.0*offset,coords.y)));
-    BlockDis[4]=unpack(texture2D(shadowMap,vec2(coords.x,coords.y)));
-     BlockDis[5]=unpack(texture2D(shadowMap,vec2(coords.x+1.0*offset,coords.y)));
-      BlockDis[6]=unpack(texture2D(shadowMap,vec2(coords.x-1.0*offset,coords.y-1.0*offset)));
-       BlockDis[7]=unpack(texture2D(shadowMap,vec2(coords.x,coords.y-1.0*offset)));
-        BlockDis[8]=unpack(texture2D(shadowMap,vec2(coords.x+1.0*offset,coords.y-1.0*offset)));
+// float BlockDis[9];
+// float PCF(sampler2D shadowMap, vec4 coords,float range) {
+// float depth=coords.z;
+// float offset=range;
+// //先试试简单卷积加权平均 ,思路是对周围的点采样深度，判断是阴影就+1  效果看起来像素太明显
+//     BlockDis[0]=unpack(texture2D(shadowMap,vec2(coords.x-1.0*offset,coords.y+1.0*offset)));
+//     BlockDis[1]=unpack(texture2D(shadowMap,vec2(coords.x,coords.y+1.0*offset)));
+//     BlockDis[2]=unpack(texture2D(shadowMap,vec2(coords.x+1.0*offset,coords.y+1.0*offset)));
+//     BlockDis[3]=unpack(texture2D(shadowMap,vec2(coords.x-1.0*offset,coords.y)));
+//     BlockDis[4]=unpack(texture2D(shadowMap,vec2(coords.x,coords.y)));
+//     BlockDis[5]=unpack(texture2D(shadowMap,vec2(coords.x+1.0*offset,coords.y)));
+//     BlockDis[6]=unpack(texture2D(shadowMap,vec2(coords.x-1.0*offset,coords.y-1.0*offset)));
+//     BlockDis[7]=unpack(texture2D(shadowMap,vec2(coords.x,coords.y-1.0*offset)));
+//     BlockDis[8]=unpack(texture2D(shadowMap,vec2(coords.x+1.0*offset,coords.y-1.0*offset)));
 
-float value=0.0;
-  for( int i = 0; i < 9; i ++ ) {
-    if(BlockDis[i]+EPS>depth)
-    {
-  value++;
-    }
+// float value=0.0;
+//   for( int i = 0; i < 9; i ++ ) {
+//     if(BlockDis[i]+EPS>depth)
+//     {
+//   value++;
+//     }
    
-  }
+//   }
 
 
-  return value/9.0;
+//   return value/9.0;
+// }
+
+
+float useShadowMap(sampler2D shadowMap, vec4 shadowCoord,float bias)
+{
+  float lightdepth=unpack(texture2D(shadowMap,shadowCoord.xy));
+  float depth=shadowCoord.z;
+
+  if(lightdepth+EPS>depth-bias)
+     {
+      return 1.0;
+     }
+  else
+    {
+      return 0.0;
+    }
 }
+ float PCF(sampler2D shadowMap, vec4 coords,float range) {
+  float depth=coords.z;
+  float offset=range;//    采样范围/shadowMap尺寸（归一化的意思）,得到uv的值
+  float pcfBiasC = .08;//bias 值
+  float value=0.0;
+  poissonDiskSamples(coords.xy);//泊松分布随机顶点
+
+  for( int i = 0; i < NUM_SAMPLES; i ++ ) {
+    vec2 Bias = poissonDisk[i] * offset;
+   // float dis=unpack(texture2D(shadowMap,coords.xy+Bias)); 
+   pcfBiasC= getShadowBias(pcfBiasC,range);
+   float shadowDepth = useShadowMap(shadowMap, coords + vec4(Bias, 0., 0.), pcfBiasC);
+    if(shadowDepth+EPS>depth)
+     {
+        value++;
+     }
+  }
+  return value/float(NUM_SAMPLES);
+}
+
 
 float PCSS(sampler2D shadowMap, vec4 coords){
 
@@ -151,22 +189,6 @@ float PCSS(sampler2D shadowMap, vec4 coords){
 }
 
 
-
-
-float useShadowMap(sampler2D shadowMap, vec4 shadowCoord,float bias)
-{
-float lightdepth=unpack(texture2D(shadowMap,shadowCoord.xy));
-float depth=shadowCoord.z;
-
-if(lightdepth+EPS>depth-bias)
-{
-return 1.0;
-}
-else{
-return 0.0;
-
-}
-}
 
 vec3 blinnPhong() {
   vec3 color = texture2D(uSampler, vTextureCoord).rgb;
@@ -196,13 +218,18 @@ void main(void) {
  vec3  shadowCoord=vPositionFromLight.xyz/vPositionFromLight.w;//vPositionFromLight为光源空间下投影的裁剪坐标，除以w结果为NDC坐标
   shadowCoord.xyz = (shadowCoord.xyz + 1.0) / 2.0; //把[-1,1]的NDC坐标转换为[0,1]的坐标
 
+
+ // PCF的采样范围，因为是在Shadow Map上采样，需要除以Shadow Map大小，得到uv坐标上的范围
+  float filterRadiusUV = FILTER_RADIUS / SHADOW_MAP_SIZE;
+
   float visibility;
   //visibility = useShadowMap(uShadowMap, vec4(shadowCoord, 1.0),getShadowBias(0.4,0.0));
-  visibility = PCF(uShadowMap, vec4(shadowCoord, 1.0));
+
+  visibility = PCF(uShadowMap, vec4(shadowCoord, 1.0),filterRadiusUV);
   //visibility = PCSS(uShadowMap, vec4(shadowCoord, 1.0));
 
   vec3 phongColor = blinnPhong();
 
-  gl_FragColor = vec4( visibility,visibility,visibility , 1.0);
+  gl_FragColor = vec4( phongColor*visibility , 1.0);
  // gl_FragColor = vec4(phongColor, 1.0);
 }
