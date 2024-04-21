@@ -21,9 +21,13 @@ varying highp vec3 vNormal;
 #define NUM_RINGS 10
 
 
-#define FILTER_RADIUS 10.0
-#define SHADOW_MAP_SIZE 2048.0
-#define FRUSTUM_SIZE 400.0
+#define FILTER_RADIUS 10.0 
+#define SHADOW_MAP_SIZE 2048.0//设定为方形
+#define FRUSTUM_SIZE 400.0 //截面尺寸
+#define LIGHT_WORLD_SIZE 5. //光照尺寸设定为方形
+#define NEAR_PLANE 0.01 //近平面到光照距离
+
+#define LIGHT_UV_SIZE  LIGHT_WORLD_SIZE/FRUSTUM_SIZE
 
 #define EPS 1e-3
 #define PI 3.141592653589793
@@ -88,8 +92,34 @@ void uniformDiskSamples( const in vec2 randomSeed ) {
   }
 }
 
-float findBlocker( sampler2D shadowMap,  vec2 uv, float zReceiver ) {
-	return 1.0;
+/*
+pcss shading point 到光照近平面 锥体范围里 阻挡物体的平均深度
+*/
+float findAvgBlocker( sampler2D shadowMap,  vec4 coords ) {
+  float blockerNum=0.0;// 阻挡物体点的数量
+  float blockerAllLength=0.0;// 阻挡物体点的总长
+  float zDepth=vPositionFromLight.z;//光照在光照空间深度
+
+
+   //相似三角形原理，从光源放大到近平面
+  float searchSize= LIGHT_UV_SIZE*(zDepth-NEAR_PLANE)/zDepth;
+   poissonDiskSamples(coords.xy);//泊松分布随机顶点
+
+     for( int i = 0; i < NUM_SAMPLES; i ++ ) 
+     {
+      float depth=  unpack(texture2D(shadowMap, coords.xy+poissonDisk[i]*searchSize));
+      //depth小于 说明是阻挡物
+          if(depth<coords.z)
+          {
+         blockerNum++;
+          blockerAllLength=blockerAllLength+depth;
+          }
+
+     }
+ if(blockerNum == 0.0)
+    return -1.;
+  else
+    return blockerAllLength / float(blockerNum);
 }
 
 /*
@@ -176,15 +206,21 @@ float useShadowMap(sampler2D shadowMap, vec4 shadowCoord,float bias)
 }
 
 
+
+
 float PCSS(sampler2D shadowMap, vec4 coords){
 
   // STEP 1: avgblocker depth
-
+float avgblocker= findAvgBlocker(shadowMap,coords);
+  if(avgblocker < -EPS)
+    return 1.0;
   // STEP 2: penumbra size
-
+//相似三角形原理
+float  Wpernumber=(coords.z-avgblocker)*LIGHT_UV_SIZE/avgblocker;
   // STEP 3: filtering
-  
-  return 1.0;
+  //pcf
+ return PCF(shadowMap,coords,Wpernumber);
+
 
 }
 
@@ -225,8 +261,8 @@ void main(void) {
   float visibility;
   //visibility = useShadowMap(uShadowMap, vec4(shadowCoord, 1.0),getShadowBias(0.4,0.0));
 
-  visibility = PCF(uShadowMap, vec4(shadowCoord, 1.0),filterRadiusUV);
-  //visibility = PCSS(uShadowMap, vec4(shadowCoord, 1.0));
+  //visibility = PCF(uShadowMap, vec4(shadowCoord, 1.0),filterRadiusUV);
+  visibility = PCSS(uShadowMap, vec4(shadowCoord, 1.0));
 
   vec3 phongColor = blinnPhong();
 
