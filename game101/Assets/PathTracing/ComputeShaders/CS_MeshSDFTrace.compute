@@ -1,0 +1,259 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel Render
+
+#include "../HLSL/UnityCommonDef.hlsl"
+#include "../HLSL/RayMath.hlsl"
+#include "../HLSL/GridMath.hlsl"
+#include "../HLSL/PBR/PBR_IBL.hlsl"
+#include "../HLSL/PBR/PBR_GGX.hlsl"
+#include "../HLSL/SDFGame/SDFCommonSys.hlsl"
+#include "../HLSL/SDFGame/SDFGameScene1.hlsl"
+
+int w;
+int h;
+
+//#########################################################################################################
+int Inx2D(int i, int j)
+{
+	return i + w * j;
+}
+//#########################################################################################################
+float3 screenLeftDownPix;
+float3 eyePos;
+float pixW;
+float pixH;
+float3 screenU;
+float3 screenV;
+
+RWTexture2D<float4> Result;
+Texture2D<float4> envDiffTex;
+Texture2DArray envSpecTex2DArr;
+Texture2D<float4> brdfLUT;
+Texture2D<float4> envBgTex;
+
+float3 startPos;
+float3 unitCount;
+float3 unit;
+struct MeshSDFGPUArrData
+{
+	float sdf;
+};
+StructuredBuffer<MeshSDFGPUArrData> sdfArr;
+
+//#########################################################################################################
+
+float GetMeshSDFByInx(int3 inx)
+{
+	//return 0;
+
+	//???
+	//float3 pos = startPos + unit * inx;
+	//return length(pos) - 0.5f;		//Ok
+	//return max(length(pos) - 0.5f,0); //No
+
+	return sdfArr[inx.x + inx.y *(unitCount.x) + inx.z*(unitCount.x*unitCount.y)].sdf;
+}
+
+float GetMeshSDF(in float3 p)
+{
+	//1.根据p-startPos，再除unit，得到当前位置i,j,k
+	int3 inx = GetCellInx(p, startPos, unit, unitCount-1);
+	float arr[8];
+	arr[0] = GetMeshSDFByInx(inx + int3(0, 0, 0));
+	arr[1] = GetMeshSDFByInx(inx + int3(1, 0, 0));
+	arr[2] = GetMeshSDFByInx(inx + int3(1, 1, 0));
+	arr[3] = GetMeshSDFByInx(inx + int3(0, 1, 0));
+
+	arr[4] = GetMeshSDFByInx(inx + int3(0, 0, 1));
+	arr[5] = GetMeshSDFByInx(inx + int3(1, 0, 1));
+	arr[6] = GetMeshSDFByInx(inx + int3(1, 1, 1));
+	arr[7] = GetMeshSDFByInx(inx + int3(0, 1, 1));
+
+	float3 cellStart = startPos + unit * inx;
+	float3 uvw = (p - cellStart) / unit;
+	//???
+	uvw = saturate(uvw);
+	float re = lerp3D(arr, uvw);
+	return re * 0.5f;
+}
+
+//float GetMeshSDF(in float3 p)
+//{
+//	//1.根据p-startPos，再除unit，得到当前位置i,j,k
+//	int3 inx = GetCellInx(p, startPos - unit*0.5f, unit, unitCount);
+//	return GetMeshSDFByInx(inx);
+//}
+
+//float3 GetMeshSDFNormal(float3 p)
+//{
+//	float epsilon = 0.0001f;
+//	return normalize(float3(
+//		GetMeshSDF(float3(p.x + epsilon, p.y, p.z)) - GetMeshSDF(float3(p.x - epsilon, p.y, p.z)),
+//		GetMeshSDF(float3(p.x, p.y + epsilon, p.z)) - GetMeshSDF(float3(p.x, p.y - epsilon, p.z)),
+//		GetMeshSDF(float3(p.x, p.y, p.z + epsilon)) - GetMeshSDF(float3(p.x, p.y, p.z - epsilon))
+//		));
+//}
+
+//讲道理当初没考虑超过bbox的MeshSDF,所以采样在bbox外面的MeshSDF，应该会出问题，
+//因此算出来的normal也可能会有问题
+//但是现在没问题，算了...
+float3 GetMeshSDFNormal(float3 p)
+{
+	float k = 0.5;
+	return normalize(float3(
+		GetMeshSDF(float3(p.x + unit.x*k, p.y, p.z)) - GetMeshSDF(float3(p.x - unit.x*k, p.y, p.z)),
+		GetMeshSDF(float3(p.x, p.y + unit.y*k, p.z)) - GetMeshSDF(float3(p.x, p.y - unit.y*k, p.z)),
+		GetMeshSDF(float3(p.x, p.y, p.z + unit.z*k)) - GetMeshSDF(float3(p.x, p.y, p.z - unit.z*k))
+		));
+}
+
+#define MAXMeshSDFTrace 660
+#define Thre_MeshSDF 0.01f
+void TraceSDFMesh(Ray ray, out HitInfo info)
+{
+	Init(info);
+
+	float3 boxMin = startPos;
+	float3 boxMax = startPos + (unitCount - 1) * unit;
+
+	int traceCount = 0;
+	while (traceCount <= MAXMeshSDFTrace)
+	{
+		if (!IsInBBox(ray.pos, boxMin, boxMax))
+		{
+			break;
+		}
+
+		//get sdf at now pos
+		float sdf = GetMeshSDF(ray.pos);
+		//float sdf = SDFSphere(ray.pos, float3(0,0,0), 0.5);
+
+		if (sdf <= length(unit)*0.5)
+		{
+			info.bHit = true;
+			//!!!
+			info.obj = 0;
+			info.N = GetMeshSDFNormal(ray.pos);
+			//info.N = SDFSphereNormal(ray.pos, float3(0, 0, 0));
+			info.P = ray.pos;
+			break;
+		}
+		ray.pos += sdf * 0.5 * ray.dir;
+		traceCount++;
+	}
+}
+
+float3 GetMeshSDFColor(in Ray ray)
+{
+	float3 re = 0;
+	//---Trace
+	HitInfo minHit;
+	//!!!
+	//1.通过meshSDF计算得其SDF的bbox
+	{
+		//CastInfo castInfo = CastBBox(ray, startPos, startPos + unitCount * unit);
+		//if (castInfo.bHit)
+		//{
+		//	return float3(1, 0, 0);
+		//}
+	}
+	Ray sampleRay = ray;
+	bool needTrace = true;
+	float3 boxMin = startPos;
+	float3 boxMax = startPos + (unitCount-1) * unit;
+	if (!IsInBBox(ray.pos, boxMin, boxMax))
+	{
+		CastInfo castInfo = CastBBox(ray, boxMin, boxMax);
+		if (castInfo.bHit)
+		{
+			//!!! offset 0.00..1f is a must!
+			sampleRay.pos += sampleRay.dir * (castInfo.dis+0.0001f);
+		}
+		else
+		{
+			needTrace = false;
+		}
+	}
+	//盒子内和会打到盒子的ray都需要进行SDFSphereTrace
+	if (needTrace)
+	{
+		//$$$ 
+		//return float3(1, 0, 0);
+		TraceSDFMesh(sampleRay, minHit);
+	}
+	//___Trace
+
+	if (needTrace && minHit.bHit)
+	{//Trace到Mesh了，返回Mesh的颜色 
+		Material_PBR mat = GetObjMaterial_PBR(minHit.obj);
+		{
+			//re = PBR_IBL(envDiffTex, envSpecTex2DArr, brdfLUT, mat, minHit.N, -ray.dir);
+		}
+		{
+			mat.metallic = 0.0f;
+			mat.roughness = 0.8f;
+			float3 lightDir = normalize(float3(-1, -1, -1));
+			float3 lightColor = float3(1, 1, 1) * 2;
+			re = PBR_GGX(mat, minHit.N, -ray.dir, -lightDir, lightColor) + 0.3 * mat.albedo;
+		}
+		{
+			//re = minHit.N;
+		}
+		{
+			//re = length(minHit.P - ray.pos) / 1.0f;
+		}
+	}
+	else
+	{//没Trace到，返回背景/天空盒的颜色
+
+		re = 0.2;//GetEnvIrradiance_equirectangular(envBgTex, ray.dir, true);
+	}
+
+	//##############################
+	HitInfo sysHit;
+	Init(sysHit);
+	float3 sysColor;
+	RaySys(ray, sysHit, sysColor);
+	if (sysHit.bHit)
+	{
+		re = lerp(re, sysColor, 0.5);
+	}
+	//##############################
+	return re;
+}
+
+#define SSAA_num 9
+[numthreads(8, 8, 1)]
+void Render(uint3 id : SV_DispatchThreadID)
+{
+	float3 re = 0;
+
+	int idx = id.x;
+	int idy = id.y;
+
+	int SSAA_edge = (int)sqrt(SSAA_num);
+	float3 pixLeftDownPos = screenLeftDownPix + screenU * pixW * (idx-0.5) + screenV * pixH * (idy - 0.5);
+	float SSAA_unitDis = 1.0f / SSAA_edge;
+	float3 SSAA_colors[SSAA_num];
+
+	for (int j = 1; j <= SSAA_edge; j++)
+	{
+		for (int i = 1; i <= SSAA_edge; i++)
+		{
+			Ray ray;
+			ray.pos = pixLeftDownPos + screenU * pixW * i * SSAA_unitDis + screenV * pixH * j * SSAA_unitDis;
+			ray.dir = normalize(ray.pos - eyePos);
+
+			SSAA_colors[i-1+(j-1)* SSAA_edge] = GetMeshSDFColor(ray);
+		}
+	}
+
+	for (int i = 0; i < SSAA_num; i++)
+	{
+		re += SSAA_colors[i];
+	}
+
+	re /= (float)SSAA_num;
+
+	Result[id.xy] = float4(re, 1);
+}

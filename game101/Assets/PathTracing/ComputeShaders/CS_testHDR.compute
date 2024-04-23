@@ -1,0 +1,104 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel Init
+#pragma kernel Trace
+#pragma kernel Render
+
+#include  "../HLSL/CommonDef.hlsl"
+#include "../HLSL/TransferMath/TransferMath.hlsl"
+#include "../HLSL/PBR/PBR_IBL.hlsl"
+
+int w;
+int h;
+
+RWTexture2D<float4> Result;
+Texture2D envBgTex;
+Texture2DArray envSpecTex2DArr;
+
+RWStructuredBuffer<Ray> mainRays;
+
+//#########################################################################################################
+int Inx2D(int i, int j)
+{
+	return i + w * j;
+}
+//#########################################################################################################
+float3 screenLeftDownPix;
+float3 eyePos;
+float pixW;
+float pixH;
+float3 screenU;
+float3 screenV;
+[numthreads(8, 8, 1)]
+void Init(uint3 id : SV_DispatchThreadID)
+{
+	int i = id.x;
+	int j = id.y;
+
+	Ray ray;
+	ray.pos = screenLeftDownPix + screenU * i * pixW + screenV * j * pixH;
+	ray.dir = normalize(ray.pos - eyePos); 
+
+	mainRays[Inx2D(i,j)] = ray;
+
+	Result[id.xy] = float4(ray.dir,1);
+}
+//#########################################################################################################
+#include  "../HLSL/RayMath.hlsl"
+
+[numthreads(8, 8, 1)]
+void Trace(uint3 id : SV_DispatchThreadID)
+{
+	int i = id.x;
+	int j = id.y;
+
+	Ray ray = mainRays[Inx2D(i, j)];
+
+	float3 re = 0.1;
+
+	//???unity到底是怎么确定视线取skySphere的哪个点？
+	//1.将ray与超大sphere求交，获取sphere上的point
+	//2.将ray的起点移到(0,0,0)。也就是ray.dir即是交点
+	//先尝试方案2.因为好像没看见哪里设置skysphere的大小
+
+	//float2 uv = EquirectangularToUV(ray.dir);
+	////re = float3(uv, 0);
+	//uint envTexW, envTexH;
+	//envRT.GetDimensions(envTexW, envTexH);
+	//re = envRT[uv*float2(envTexW, envTexH)];
+	Result[id.xy] = float4(re, 1);
+}
+
+//#########################################################################################################
+//https://docs.unity3d.com/Manual/SL-SamplerStates.html
+//SamplerState my_point_repeat_sampler;
+//{
+//	Filter = MIN_MAG_MIP_POINT;
+//	AddressU = Wrap;
+//	AddressV = Wrap;
+//};
+[numthreads(8, 8, 1)]
+void Render(uint3 id : SV_DispatchThreadID)
+{
+	int i = id.x;
+	int j = id.y;
+
+	Ray ray;
+	ray.pos = screenLeftDownPix + screenU * i * pixW + screenV * j * pixH;
+	ray.dir = normalize(ray.pos - eyePos);
+
+	
+	float3 re = 0.1;
+
+	//???unity到底是怎么确定视线取skySphere的哪个点？
+	//1.将ray与超大sphere求交，获取sphere上的point
+	//2.将ray的起点移到(0,0,0)。也就是ray.dir即是交点
+	//先尝试方案2.因为好像没看见哪里设置skysphere的大小
+
+	//re = GetEnvIrradiance_equirectangular(envBgTex, ray.dir, 0, true);
+	//re = IBLBakeSpecMip(envSpecTex2DArr, ray.dir, 0.25*4, true);
+	re = IBLBakeSpecMipByRoughness(envSpecTex2DArr, ray.dir, 0.15f, true);
+
+	//float2 uv = EquirectangularToUV(ray.dir, true);
+	//re = float3(uv, 0);
+	Result[id.xy] = float4(re, 1);
+}
