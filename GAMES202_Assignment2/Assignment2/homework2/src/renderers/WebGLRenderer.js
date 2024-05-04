@@ -50,7 +50,7 @@ class WebGLRenderer {
                 for (let k in this.meshes[i].material.uniforms) {
 
                     let cameraModelMatrix = mat4.create();
-                    //mat4.fromRotation(cameraModelMatrix, timer, [0, 1, 0]);
+                    mat4.fromRotation(cameraModelMatrix, timer, [0, 1, 0]);
 
                     if (k == 'uMoveWithCamera') { // The rotation of the skybox
                         gl.uniformMatrix4fv(
@@ -59,10 +59,41 @@ class WebGLRenderer {
                             cameraModelMatrix);
                     }
 
+                    let matrixValue = getMat3ValueFromRGB(precomputeL[guiParams.envmapId]);
+                    if (k == "aPrecomputeLR") {
+                        gl.uniformMatrix3fv(
+                            this.meshes[i].shader.program.uniforms[k],
+                            false,
+                            matrixValue[0]);
+
+                    }
+                    if (k == "aPrecomputeLG") {
+                        gl.uniformMatrix3fv(
+                            this.meshes[i].shader.program.uniforms[k],
+                            false,
+                            matrixValue[1]);
+
+                    }
+                    if (k == "aPrecomputeLB") {
+                        gl.uniformMatrix3fv(
+                            this.meshes[i].shader.program.uniforms[k],
+                            false,
+                            matrixValue[2]);
+                    }
+                    // let Mat3Value = getMat3ValueFromRGB(precomputeL[guiParams.envmapId]);
+                    // for (let j = 0; j < 3; j++) {
+                    //     if (k == 'uPrecomputeL[' + j + ']') {
+                    //         gl.uniformMatrix3fv(
+                    //             this.meshes[i].shader.program.uniforms[k],
+                    //             false,
+                    //             Mat3Value[j]);
+                    //     }
+                    // }
                     // Bonus - Fast Spherical Harmonic Rotation
                     //let precomputeL_RGBMat3 = getRotationPrecomputeL(precomputeL[guiParams.envmapId], cameraModelMatrix);
-                    
-                    
+
+
+
                 }
 
                 this.meshes[i].draw(this.camera);

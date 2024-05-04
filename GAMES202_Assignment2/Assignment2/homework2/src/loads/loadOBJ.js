@@ -46,7 +46,7 @@ function loadOBJ(renderer, path, name, objMaterial, transform) {
 								colorMap.CreateConstantTexture(renderer.gl, mat.color.toArray());
 							}
 
-							let material, shadowMaterial;
+							let material, shadowMaterial, prtmaterial;
 							let Translation = [transform.modelTransX, transform.modelTransY, transform.modelTransZ];
 							let Scale = [transform.modelScaleX, transform.modelScaleY, transform.modelScaleZ];
 
@@ -58,10 +58,14 @@ function loadOBJ(renderer, path, name, objMaterial, transform) {
 									shadowMaterial = buildShadowMaterial(light, Translation, Scale, "./src/shaders/shadowShader/shadowVertex.glsl", "./src/shaders/shadowShader/shadowFragment.glsl");
 									break;
 								// TODO: Add your PRTmaterial here
-
+								case 'PrtMaterial':
+									material = buildPrtMaterial("./src/shaders/PrtShader/PrtVertex.glsl", "./src/shaders/PrtShader/PrtFragment.glsl");
+									break;
 								case 'SkyBoxMaterial':
 									material = buildSkyBoxMaterial("./src/shaders/skyBoxShader/SkyBoxVertex.glsl", "./src/shaders/skyBoxShader/SkyBoxFragment.glsl");
 									break;
+
+
 							}
 
 							material.then((data) => {
