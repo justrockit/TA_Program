@@ -17,7 +17,7 @@ class SSRMaterial extends Material {
     }
 }
 
-async function buildSSRMaterial(diffuseMap, specularMap, light, camera,  vertexPath, fragmentPath) {
+async function buildSSRMaterial(diffuseMap, specularMap, light, camera, vertexPath, fragmentPath) {
     let vertexShader = await getShaderString(vertexPath);
     let fragmentShader = await getShaderString(fragmentPath);
 

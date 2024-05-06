@@ -16,7 +16,7 @@ varying highp vec4 vPosWorld;
 
 #define M_PI 3.1415926535897932384626433832795
 #define TWO_PI 6.283185307
-#define INV_PI 0.31830988618
+#define INV_PI 0.31830988618//pai的倒数
 #define INV_TWO_PI 0.15915494309
 
 float Rand1(inout float p) {
@@ -121,9 +121,16 @@ vec3 GetGBufferDiffuse(vec2 uv) {
  * uv is in screen space, [0, 1] x [0, 1].
  *
  */
+
+ //渲染方程中 F项（brdf项） wi 入射方向 wo 出射方向
 vec3 EvalDiffuse(vec3 wi, vec3 wo, vec2 uv) {
-  vec3 L = vec3(0.0);
-  return L;
+ //这里用兰伯特光照模型（也可以半兰伯特），为啥除于Π 去看rendering 方程，当L为常量时
+  vec3 albedo=GetGBufferDiffuse(uv);
+  vec3 normal=GetGBufferNormalWorld(uv);
+
+   float cos= max(0.0,dot(wi,normal));
+
+  return albedo*cos*INV_PI;
 }
 
 /*
@@ -131,14 +138,56 @@ vec3 EvalDiffuse(vec3 wi, vec3 wo, vec2 uv) {
  * uv is in screen space, [0, 1] x [0, 1].
  *
  */
+  //渲染方程中 L项（光照项）
 vec3 EvalDirectionalLight(vec2 uv) {
-  vec3 Le = vec3(0.0);
+  vec3 Le =GetGBufferuShadow(uv)*uLightRadiance;
   return Le;
 }
-
+//这里算的是间接光照 这是都是世界坐标
 bool RayMarch(vec3 ori, vec3 dir, out vec3 hitPos) {
+   float maxDis=150.0;//总长
+   const int stepNum=3000;
+  float step=0.05;
+  vec3 realstep=normalize(dir)*step;//真实步长
+  vec3 curpos=ori;
+
+ //用当前坐标的深度和当前这个屏幕坐标下的存的深度图对比,如果比Gbuffer深(值更大)说明会收到该点光照
+  for(int i = 0; i<=stepNum ;i++)
+  {
+    float curdepth=GetDepth(curpos);
+    vec2 uv=GetScreenCoordinate(curpos);
+    float mapdepth=GetGBufferDepth(uv);
+    if(curdepth-mapdepth> 0.0001)
+    {
+      hitPos=curpos;
+      return true;
+    }
+    curpos=curpos+realstep;
+  }
   return false;
 }
+
+//获取到反射的方向，用法线和视线取反调用 reflect方法
+vec3  EvalIndirectionalLight(vec3 ori)
+{
+
+  vec3 hitPos;
+  vec2 uv=GetScreenCoordinate(ori);
+  vec3 dir=reflect(normalize(-(uCameraPos-ori)),GetGBufferNormalWorld(uv));//反射方向
+
+  if(RayMarch(ori,dir,hitPos))
+  {
+      vec2 screenUV = GetScreenCoordinate(hitPos);
+      return GetGBufferDiffuse(screenUV);//获得反射点间接光
+  }
+  else
+  {
+    return  vec3(0.); 
+  }
+
+
+}
+
 
 #define SAMPLE_NUM 1
 
@@ -146,7 +195,15 @@ void main() {
   float s = InitRand(gl_FragCoord.xy);
 
   vec3 L = vec3(0.0);
-  L = GetGBufferDiffuse(GetScreenCoordinate(vPosWorld.xyz));
+  // vec2 uv=GetScreenCoordinate(ori);
+  // L = GetGBufferDiffuse(uv);
+
+  vec2 uv=GetScreenCoordinate(vPosWorld.xyz);
+  vec3 wo=uLightDir;
+  vec3 wi=uCameraPos-vPosWorld.xyz;
+  vec3 directional=EvalDirectionalLight(uv)*EvalDiffuse(wo,wi,uv);
+  vec3 indirectional=EvalIndirectionalLight(vPosWorld.xyz);
+
   vec3 color = pow(clamp(L, vec3(0.0), vec3(1.0)), vec3(1.0 / 2.2));
-  gl_FragColor = vec4(vec3(color.rgb), 1.0);
+  gl_FragColor = vec4(directional+indirectional, 1.0);
 }
