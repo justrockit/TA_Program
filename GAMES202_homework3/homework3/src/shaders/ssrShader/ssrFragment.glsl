@@ -36,6 +36,9 @@ float InitRand(vec2 uv) {
   return fract((p3.x + p3.y) * p3.z);
 }
 
+/*
+均匀分布
+*/
 vec3 SampleHemisphereUniform(inout float s, out float pdf) {
   vec2 uv = Rand2(s);
   float z = uv.x;
@@ -46,16 +49,23 @@ vec3 SampleHemisphereUniform(inout float s, out float pdf) {
   return dir;
 }
 
+/*
+  cos 分布  随机采样 半球  随机种子s由 InitRand随机uv值得来 
+
+*/
 vec3 SampleHemisphereCos(inout float s, out float pdf) {
   vec2 uv = Rand2(s);
-  float z = sqrt(1.0 - uv.x);
+  float z = sqrt(1.0 - uv.x);//和uv.x 满足 z平方+uv.x平方=1 ，这就满足（z，uv.x）是半球上的一个点
   float phi = uv.y * TWO_PI;
-  float sinTheta = sqrt(uv.x);
+  float sinTheta = sqrt(uv.x);//
   vec3 dir = vec3(sinTheta * cos(phi), sinTheta * sin(phi), z);
   pdf = z * INV_PI;
   return dir;
 }
-
+/*
+用于计算给定法线向量 n 的局部正交基（tangent basis）。这个基通常用于将向量从世界空间（world space）转换到与表面相关的切线空间（tangent space），
+这在许多图形应用中都是必要的，比如法线贴图（normal mapping）、位移贴图（displacement mapping）等。
+*/
 void LocalBasis(vec3 n, out vec3 b1, out vec3 b2) {
   float sign_ = sign(n.z);
   if (n.z == 0.0) {
@@ -154,9 +164,9 @@ bool RayMarch(vec3 ori, vec3 dir, out vec3 hitPos) {
  //用当前坐标的深度和当前这个屏幕坐标下的存的深度图对比,如果比Gbuffer深(值更大)说明会收到该点光照
   for(int i = 0; i<=stepNum ;i++)
   {
-    float curdepth=GetDepth(curpos);
+    float curdepth=GetDepth(curpos);//当前坐标的深度
     vec2 uv=GetScreenCoordinate(curpos);
-    float mapdepth=GetGBufferDepth(uv);
+    float mapdepth=GetGBufferDepth(uv);//屏幕坐标下的存的深度图
     if(curdepth-mapdepth> 0.0001)
     {
       hitPos=curpos;
@@ -189,7 +199,7 @@ vec3  EvalIndirectionalLight(vec3 ori)
 }
 
 
-#define SAMPLE_NUM 1
+#define SAMPLE_NUM 2
 
 void main() {
   float s = InitRand(gl_FragCoord.xy);
@@ -202,8 +212,27 @@ void main() {
   vec3 wo=uLightDir;
   vec3 wi=uCameraPos-vPosWorld.xyz;
   vec3 directional=EvalDirectionalLight(uv)*EvalDiffuse(wo,wi,uv);
-  vec3 indirectional=EvalIndirectionalLight(vPosWorld.xyz);
+
+   float pdf=0.0;
+vec3 L_ind = vec3(0.0);//间接光累加
+for(int i=0;i<SAMPLE_NUM;i++)
+ {
+  vec3 randPos= SampleHemisphereCos(s,pdf);//随机采样方向,这是局部向量，要用TBN矩阵转到世界坐标下的方向向量
+  vec3 normal=GetGBufferNormalWorld(uv);
+  vec3 b1; vec3 b2;
+  LocalBasis(normal,b1,b2);
+  vec3 realdir=normalize(mat3(b1,b2,normal)*randPos);
+  vec3 hitPos;//击中点
+  if(RayMarch(vPosWorld.xyz,realdir,hitPos))
+  {
+  vec2 uv2 = GetScreenCoordinate(hitPos);
+     L_ind=L_ind+EvalDiffuse(realdir,wi,uv)/pdf * (EvalDirectionalLight(uv2)*EvalDiffuse(wi,realdir,uv2));//获得反射点间接光
+  }
+    
+ }
+
+ // vec3 indirectional=EvalIndirectionalLight(vPosWorld.xyz);
 
   vec3 color = pow(clamp(L, vec3(0.0), vec3(1.0)), vec3(1.0 / 2.2));
-  gl_FragColor = vec4(directional+indirectional, 1.0);
+  gl_FragColor = vec4(directional+L_ind, 1.0);
 }
