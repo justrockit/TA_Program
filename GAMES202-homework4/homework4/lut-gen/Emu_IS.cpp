@@ -78,7 +78,7 @@ Vec3f IntegrateBRDF(Vec3f V, float roughness) {
 }
 
 int main() {
-    uint8_t data[resolution * resolution * 3];
+    uint8_t* data = new uint8_t[resolution * resolution * 3];
     float step = 1.0 / resolution;
     for (int i = 0; i < resolution; i++) {
         for (int j = 0; j < resolution; j++) {

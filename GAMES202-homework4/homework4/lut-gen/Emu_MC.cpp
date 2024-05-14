@@ -15,9 +15,10 @@ const int resolution = 128;
 
 typedef struct samplePoints {
     std::vector<Vec3f> directions;
-	std::vector<float> PDFs;
+	std::vector<float> PDFs;//概率分布值 类似权重
 }samplePoints;
 
+//余弦重要性采样
 samplePoints squareToCosineHemisphere(int sample_count){
     samplePoints samlpeList;
     const int sample_side = static_cast<int>(floor(sqrt(sample_count)));
@@ -31,7 +32,7 @@ samplePoints squareToCosineHemisphere(int sample_count){
             double sampley = (p + rng(gen)) / sample_side;
             
             double theta = 0.5f * acos(1 - 2*samplex);
-            double phi =  2 * M_PI * sampley;
+            double phi =  2 * PI * sampley;
             Vec3f wi = Vec3f(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
             float pdf = wi.z / PI;
             
@@ -42,6 +43,9 @@ samplePoints squareToCosineHemisphere(int sample_count){
     return samlpeList;
 }
 
+/*
+各向同性GGX 
+*/
 float DistributionGGX(Vec3f N, Vec3f H, float roughness)
 {
     float a = roughness*roughness;
@@ -83,6 +87,16 @@ Vec3f IntegrateBRDF(Vec3f V, float roughness, float NdotV) {
     samplePoints sampleList = squareToCosineHemisphere(sample_count);
     for (int i = 0; i < sample_count; i++) {
       // TODO: To calculate (fr * ni) / p_o here
+
+        //准备 F，G，D项所需数据
+        Vec3f L = normalize(sampleList.directions[i]);//光照方向
+        float pdf = sampleList.PDFs[i];
+
+        //f项
+        float f = 1.0f;
+        float d = DistributionGGX(N,,roughness);
+
+
       
     }
 
@@ -90,7 +104,7 @@ Vec3f IntegrateBRDF(Vec3f V, float roughness, float NdotV) {
 }
 
 int main() {
-    uint8_t data[resolution * resolution * 3];
+    uint8_t* data = new uint8_t[resolution * resolution * 3];//分辨率*3 因为RGB各一个
     float step = 1.0 / resolution;
     for (int i = 0; i < resolution; i++) {
         for (int j = 0; j < resolution; j++) {
