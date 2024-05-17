@@ -23,6 +23,9 @@ Vec2f Hammersley(uint32_t i, uint32_t N) { // 0-1
     return {float(i) / float(N), rdi};
 }
 
+/*
+重要性采样
+*/
 Vec3f ImportanceSampleGGX(Vec2f Xi, Vec3f N, float roughness) {
     float a = roughness * roughness;
 
