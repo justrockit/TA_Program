@@ -19,7 +19,7 @@ function GAMES202Main() {
 	gl.getExtension('OES_texture_float');
 	gl_draw_buffers = gl.getExtension('WEBGL_draw_buffers');
 	var maxdb = gl.getParameter(gl_draw_buffers.MAX_DRAW_BUFFERS_WEBGL);
-    console.log('MAX_DRAW_BUFFERS_WEBGL: ' + maxdb);
+	console.log('MAX_DRAW_BUFFERS_WEBGL: ' + maxdb);
 
 	// Add camera
 	const camera = new THREE.PerspectiveCamera(75, gl.canvas.clientWidth / gl.canvas.clientHeight, 1e-3, 1000);
@@ -85,9 +85,9 @@ function GAMES202Main() {
 	renderer.addLight(directionLight);
 
 	// Add shapes
-	loadGLTF(renderer, 'assets/cube/', 'cube1', 'SSRMaterial');
+	//loadGLTF(renderer, 'assets/cube/', 'cube1', 'SSRMaterial');
 	// loadGLTF(renderer, 'assets/cube/', 'cube2', 'SSRMaterial');
-	// loadGLTF(renderer, 'assets/cave/', 'cave', 'SSRMaterial');
+	loadGLTF(renderer, 'assets/cave/', 'cave', 'SSRMaterial');
 
 	function createGUI() {
 		const gui = new dat.gui.GUI();

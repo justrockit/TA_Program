@@ -155,8 +155,8 @@ vec3 EvalDirectionalLight(vec2 uv) {
 }
 //这里算的是间接光照 这是都是世界坐标
 bool RayMarch(vec3 ori, vec3 dir, out vec3 hitPos) {
-   float maxDis=150.0;//总长
-   const int stepNum=3000;
+   //float maxDis=150.0;//总长
+   const int stepNum=150;
   float step=0.05;
   vec3 realstep=normalize(dir)*step;//真实步长
   vec3 curpos=ori;
@@ -199,7 +199,7 @@ vec3  EvalIndirectionalLight(vec3 ori)
 }
 
 
-#define SAMPLE_NUM 2
+#define SAMPLE_NUM 1
 
 void main() {
   float s = InitRand(gl_FragCoord.xy);
@@ -221,7 +221,7 @@ for(int i=0;i<SAMPLE_NUM;i++)
   vec3 normal=GetGBufferNormalWorld(uv);
   vec3 b1; vec3 b2;
   LocalBasis(normal,b1,b2);
-  vec3 realdir=normalize(mat3(b1,b2,normal)*randPos);
+  vec3 realdir=normalize(mat3(b1,b2,normal)*randPos);//TBN矩阵
   vec3 hitPos;//击中点
   if(RayMarch(vPosWorld.xyz,realdir,hitPos))
   {
@@ -231,8 +231,15 @@ for(int i=0;i<SAMPLE_NUM;i++)
     
  }
 
- // vec3 indirectional=EvalIndirectionalLight(vPosWorld.xyz);
+   L_ind /= float(SAMPLE_NUM);//求均值
+
+
+ L = directional + L_ind;
 
   vec3 color = pow(clamp(L, vec3(0.0), vec3(1.0)), vec3(1.0 / 2.2));
-  gl_FragColor = vec4(directional+L_ind, 1.0);
+  gl_FragColor = vec4(vec3(color.rgb), 1.0);
+ // vec3 indirectional=EvalIndirectionalLight(vPosWorld.xyz);
+
+  // vec3 color = pow(clamp(L, vec3(0.0), vec3(1.0)), vec3(1.0 / 2.2));
+  // gl_FragColor = vec4(directional+L_ind, 1.0);
 }
