@@ -24,7 +24,7 @@ float DistributionGGX(vec3 N, vec3 H, float roughness)
 {
    // TODO: To calculate GGX NDF here
    float a=roughness*roughness;
-   float NOH=max(dot(N,H) ,0,0);
+   float NOH=max(dot(N,H) ,0.0);
    float bottom=(a*a-1.0)*NOH*NOH+1.0;
    return a*a/ (PI*bottom*bottom);   
 }
@@ -41,18 +41,18 @@ float k = (roughness * roughness) / 2.0;
 float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
 {
     // TODO: To calculate Smith G here
-    float NdotV =max(dot(N,V) ,0,0);
-    float NdotL =max(dot(N,L) ,0,0);
+    float NdotV =max(dot(N,V) ,0.0);
+    float NdotL =max(dot(N,L) ,0.0);
 
  float value1=   GeometrySchlickGGX(NdotV,roughness);
- float value2  GeometrySchlickGGX(NdotL,roughness);
-    return value1*value2;
+ float value2 = GeometrySchlickGGX(NdotL,roughness);
+return value1*value2;
 }
 
 vec3 fresnelSchlick(vec3 F0, vec3 V, vec3 H)
 {
     // TODO: To calculate Schlick F here
-    return F0+(1-F0)pow((1-max(dot(H,V) ,0,0)), 5.0 );
+    return F0+(1.0-F0)*pow((1.0-max(dot(H,V) ,0.0)), 5.0);
 }
 
 
@@ -77,9 +77,13 @@ vec3 MultiScatterBRDF(float NdotL, float NdotV)
   vec3 F_avg = AverageFresnel(albedo, edgetint);
   
   // TODO: To calculate fms and missing energy here
- 
- 
-  return vec3(1.0);
+  //套用文档中的公式 ,计算颜色
+  //fr = fmicro + fadd ∗ fms
+   vec3 F_add=F_avg*E_avg/(1.0-F_avg*(1.0-E_avg));
+    vec3 fms=(1.0-E_o)*(1.0-E_i)/(PI*(1.0-E_avg));
+
+
+  return fms*F_add;
   
 }
 
