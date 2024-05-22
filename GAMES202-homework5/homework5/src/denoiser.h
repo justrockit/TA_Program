@@ -14,7 +14,7 @@ struct FrameInfo {
     Buffer2D<float> m_depth;
     Buffer2D<Float3> m_normal;
     Buffer2D<Float3> m_position;
-    Buffer2D<float> m_id;
+    Buffer2D<float> m_id; //移动物体的id，构建时增加id，方便替补不必要的计算
     std::vector<Matrix4x4> m_matrix;
 };
 
@@ -27,6 +27,8 @@ class Denoiser {
 
     void Reprojection(const FrameInfo &frameInfo);
     void TemporalAccumulation(const Buffer2D<Float3> &curFilteredColor);
+    void Reprojection1(const FrameInfo &frameInfo);
+    void TemporalAccumulation1(const Buffer2D<Float3> &curFilteredColor);
     Buffer2D<Float3> Filter(const FrameInfo &frameInfo);
 
     Buffer2D<Float3> ProcessFrame(const FrameInfo &frameInfo);

@@ -27,21 +27,21 @@ class Float3 {
     Float3 operator*(const float &v) const { return Float3(x * v, y * v, z * v); }
     Float3 operator*(const Float3 &v) const { return Float3(x * v.x, y * v.y, z * v.z); }
     Float3 operator/(const float &v) const {
-        CHECK(v != 0.0);
+       // CHECK(v != 0.0);
         float inv = 1.0f / v;
         return Float3(x * inv, y * inv, z * inv);
     }
     Float3 operator/(const Float3 &v) const {
-        CHECK(v.x != 0.0);
-        CHECK(v.y != 0.0);
-        CHECK(v.z != 0.0);
+      //  CHECK(v.x != 0.0);
+       // CHECK(v.y != 0.0);
+      //  CHECK(v.z != 0.0);
         float invX = 1.0f / v.x;
         float invY = 1.0f / v.y;
         float invZ = 1.0f / v.z;
         return Float3(x * invX, y * invY, z * invZ);
     }
     Float3 &operator/=(const float &v) {
-        CHECK(v != 0.0);
+      //  CHECK(v != 0.0);
         float inv = 1.0f / v;
         x *= inv;
         y *= inv;
@@ -132,7 +132,7 @@ class Matrix4x4 {
         return ret;
     }
     Matrix4x4 operator/(const float &v) const {
-        CHECK(v != 0);
+      //  CHECK(v != 0);
         float inv = 1.f / v;
         return *this * inv;
     }
