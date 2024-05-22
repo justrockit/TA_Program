@@ -48,3 +48,9 @@ class Denoiser {
     float m_sigmaCoord = 32.0f;
     float m_colorBoxK = 1.0f;
 };
+
+
+class Denoiser_SVGF {
+
+   
+};
