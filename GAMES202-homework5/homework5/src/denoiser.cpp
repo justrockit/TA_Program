@@ -120,6 +120,11 @@ void Denoiser::TemporalAccumulation(const Buffer2D<Float3> &curFilteredColor) {
     std::swap(m_misc, m_accColor);
 }
 
+
+
+
+
+
 void Denoiser::Reprojection1(const FrameInfo &frameInfo) {
     int height = m_accColor.m_height;
     int width = m_accColor.m_width;
@@ -155,7 +160,86 @@ void Denoiser::TemporalAccumulation1(const Buffer2D<Float3> &curFilteredColor) {
     std::swap(m_misc, m_accColor);
 }
 
+/*
+算法优化 16X16 可以转为 3X5X5
+*/
+Buffer2D<Float3> Denoiser::Filter2(const FrameInfo &frameInfo) {
+    int height = frameInfo.m_beauty.m_height;
+    int width = frameInfo.m_beauty.m_width;
+    Buffer2D<Float3> filteredImage = CreateBuffer2D<Float3>(width, height);
+    int kernelRadius = 16;
+#pragma omp parallel for
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
 
+            // TODO: Joint bilateral filter
+            // 联合双边滤波 具体去看公式
+            // 滤波范围
+  /*          int max_x = std::min(width - 1, x + kernelRadius);
+            int max_y = std::min(height - 1, y + kernelRadius);
+            int min_x = std::max(0, x - kernelRadius);
+            int min_y = std::max(0, y - kernelRadius);*/
+
+            Float3 c_normal = frameInfo.m_normal(x, y);
+            Float3 c_pos = frameInfo.m_position(x, y);
+            // Float3 c_depth = frameInfo.m_depth(x, y);
+            Float3 c_color = frameInfo.m_beauty(x, y);
+
+  
+            float filterValues = 0.0;
+            Float3 finalColor;
+            int passs = 5;
+
+            for (int pass = 0; pass < passs; pass++) {
+                for (int m = -2; m <= 2; m++) {
+                    for (int n = -2; n <= 2; n++) {
+
+                        int i = x + pow(2, pass) * m;
+                        int j = y + pow(2, pass) * n;
+
+                        auto o_normal = frameInfo.m_normal(i, j);
+                        // o_depth = frameInfo.m_depth(i, j);
+                        auto o_color = frameInfo.m_beauty(i, j);
+                        auto o_pos = frameInfo.m_position(i, j);
+                        // 像素距离参数
+                        auto pos_value =
+                            SqrDistance(Float3(i, j, 0.0f), Float3(x, y, 0.0f)) /
+                            (2.0f * m_sigmaCoord * m_sigmaCoord);
+                        // 像素颜色参数
+                        auto color_value = SqrDistance(c_color, o_color) /
+                                           (2.0f * m_sigmaColor * m_sigmaColor);
+
+                        // 像素法线参数
+                        auto d_normal = SafeAcos(Dot(c_normal, o_normal));
+                        auto normal_value =
+                            d_normal * d_normal / (2.0f * m_sigmaNormal * m_sigmaNormal);
+
+                        // 像素坐标参数
+                        float d_plane = .0f;
+                        if (Length(o_pos - c_pos) > 0.f) {
+                            d_plane = Dot(c_normal, Normalize(o_pos - c_pos));
+                        }
+                        float plane_value =
+                            d_plane * d_plane / (2.0f * m_sigmaPlane * m_sigmaPlane);
+
+                        // 综合处理
+                        float filterValue =
+                            exp(-pos_value - color_value - plane_value - normal_value);
+                        // 滤波值
+                        filterValues = filterValues + filterValue;
+                        // 滤波颜色叠加
+                        finalColor = finalColor + o_color * filterValue;
+                    }
+                }   
+            }
+
+           
+            filteredImage(x, y) = finalColor / filterValues;
+        }
+    }
+
+    return filteredImage;
+}
 
 Buffer2D<Float3> Denoiser::Filter(const FrameInfo &frameInfo) {
     int height = frameInfo.m_beauty.m_height;
@@ -260,13 +344,13 @@ void Denoiser::Init(const FrameInfo &frameInfo, const Buffer2D<Float3> &filtered
     m_valid = CreateBuffer2D<bool>(width, height);
 }
 
-void Denoiser::Maintain(const FrameInfo &frameInfo) { m_preFrameInfo = frameInfo; }
+void Denoiser::Maintain(const FrameInfo &frameInfo) { m_preFrameInfo = frameInfo;}
 
 Buffer2D<Float3> Denoiser::ProcessFrame(const FrameInfo &frameInfo) {
     // Filter current frame
     Buffer2D<Float3> filteredColor;
     std::cout << "Filter" << std::endl;
-    filteredColor = Filter(frameInfo);
+    filteredColor = Filter2(frameInfo);
 
     // Reproject previous frame color to current
     if (m_useTemportal) {
